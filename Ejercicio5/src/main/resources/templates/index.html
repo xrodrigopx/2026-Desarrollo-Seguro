@@ -71,15 +71,11 @@
     <div th:if="${registerError}" class="msg error" th:text="${registerError}"></div>
 
     <!-- Post-login info -->
-    <div th:if="${loginSuccess}">
-        <div class="info-box">
-            <strong>&#128203; Datos de la cuenta (ejercicio):</strong>
-            <br><br>
-            &#9656; Password cifrada:
-            <div class="code" th:text="${encryptedPassword}"></div>
-            <br>
-        </div>
-    </div>
+    <!--
+        practico-2: se elimino la exposicion del hash de la contrasenia en la respuesta
+        (CWE-200 / almacenamiento inseguro). El servidor nunca debe mostrarle al cliente
+        el valor cifrado/hasheado de una credencial.
+    -->
 </div>
 
 <script>

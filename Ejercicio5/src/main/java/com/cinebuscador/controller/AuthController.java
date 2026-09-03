@@ -1,8 +1,8 @@
 package com.cinebuscador.controller;
 
-import com.cinebuscador.config.EncryptionService;
 import com.cinebuscador.repository.UserRepository;
 import com.cinebuscador.model.User;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +13,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class AuthController {
 
     private final UserRepository userRepository;
+
+    // BCrypt genera un hash distinto cada vez (usa una sal random), y no se
+    // puede revertir para obtener la contraseña original como pasaba antes
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public AuthController(UserRepository userRepository) {
         this.userRepository = userRepository;
@@ -31,16 +35,14 @@ public class AuthController {
     public String login(@RequestParam String username, @RequestParam String password, Model model) {
         User user = userRepository.findByUsername(username).orElse(null);
 
-        if (user != null) {
-            // Descifrar la contraseña almacenada y comparar con la ingresada
-            String decryptedPassword = EncryptionService.decrypt(user.getPassword());
-            if (password.equals(decryptedPassword)) {
-                model.addAttribute("loginSuccess", true);
-                model.addAttribute("welcomeUser", username);
-                model.addAttribute("encryptedPassword", user.getPassword());
-                return "index";
-            }
+        // Comparamos la contraseña ingresada contra el hash guardado.
+        // No hay forma de "descifrar" el hash, solo se puede comparar.
+        if (user != null && passwordEncoder.matches(password, user.getPassword())) {
+            model.addAttribute("loginSuccess", true);
+            model.addAttribute("welcomeUser", username);
+            return "index";
         }
+
         model.addAttribute("loginError", "Usuario o contraseña incorrecta");
         addForms(model);
         return "index";
@@ -62,15 +64,15 @@ public class AuthController {
             return "index";
         }
 
+        String passwordHasheada = passwordEncoder.encode(password);
 
-        com.cinebuscador.model.User nuevoUsuario = new com.cinebuscador.model.User();
+        User nuevoUsuario = new User();
         nuevoUsuario.setUsername(username);
-        nuevoUsuario.setPassword(EncryptionService.encrypt(password));
+        nuevoUsuario.setPassword(passwordHasheada);
         userRepository.save(nuevoUsuario);
 
         model.addAttribute("registerSuccess", true);
         model.addAttribute("registeredUsername", username);
-        model.addAttribute("encryptedPassword", EncryptionService.encrypt(password));
         addForms(model);
         return "index";
     }

@@ -7,11 +7,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.MediaType;
 import org.springframework.http.MediaTypeFactory;
 import org.springframework.core.io.UrlResource;
@@ -20,12 +22,20 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Controller
 public class PeliculaController {
+
+    // Lista de extensiones y tipos de imagen que dejamos subir como afiche
+    private static final List<String> EXTENSIONES_PERMITIDAS =
+        Arrays.asList("jpg", "jpeg", "png", "gif", "webp");
+    private static final List<String> CONTENT_TYPES_PERMITIDOS =
+        Arrays.asList("image/jpeg", "image/png", "image/gif", "image/webp");
 
     private final PeliculaRepository peliculaRepo;
 
@@ -85,14 +95,46 @@ public class PeliculaController {
         Pelicula pelicula = peliculaRepo.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Pelicula no encontrada"));
 
-        String filename = archivo.getOriginalFilename();
-        Path uploadPath = Paths.get(uploadDir);
+        if (archivo.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El archivo esta vacio");
+        }
+
+        // Chequeamos que el tipo de archivo declarado sea una imagen
+        String contentType = archivo.getContentType();
+        if (contentType == null || !CONTENT_TYPES_PERMITIDOS.contains(contentType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tipo de archivo no permitido");
+        }
+
+        // Sacamos la extension del nombre original solo para validarla,
+        // el nombre en si no lo vamos a usar para guardar el archivo
+        String originalFilename = archivo.getOriginalFilename();
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            int puntoIndex = originalFilename.lastIndexOf(".");
+            extension = originalFilename.substring(puntoIndex + 1).toLowerCase();
+        }
+
+        if (!EXTENSIONES_PERMITIDAS.contains(extension)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Extension de archivo no permitida");
+        }
+
+        // El nombre del archivo lo generamos nosotros con un UUID, asi el usuario
+        // no puede meter cosas raras como "../" en el nombre para escribir en otro lado
+        String nuevoNombre = UUID.randomUUID().toString() + "." + extension;
+
+        Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
         if (!Files.exists(uploadPath)) {
             Files.createDirectories(uploadPath);
         }
-        Files.copy(archivo.getInputStream(), uploadPath.resolve(filename));
 
-        pelicula.setAfichePath(filename);
+        Path destino = uploadPath.resolve(nuevoNombre).normalize();
+        if (!destino.startsWith(uploadPath)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ruta de destino invalida");
+        }
+
+        Files.copy(archivo.getInputStream(), destino);
+
+        pelicula.setAfichePath(nuevoNombre);
         peliculaRepo.save(pelicula);
 
         return "redirect:/";
@@ -101,14 +143,22 @@ public class PeliculaController {
     @GetMapping("/uploads/{filename:.+}")
     @ResponseBody
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) throws IOException {
-        Path filePath = Paths.get(uploadDir).resolve(filename).normalize();
-        Resource resource = new UrlResource(filePath.toUri());
-        MediaType mediaType = MediaTypeFactory.getMediaType(resource)
-        .orElse(MediaType.APPLICATION_OCTET_STREAM);
+        Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+        Path filePath = uploadPath.resolve(filename).normalize();
 
+        // Si alguien manda algo como "../../etc/passwd" en filename, el path
+        // resuelto termina fuera de uploadPath y lo cortamos aca
+        if (!filePath.startsWith(uploadPath)) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        Resource resource = new UrlResource(filePath.toUri());
         if (!resource.exists()) {
             return ResponseEntity.notFound().build();
         }
+
+        MediaType mediaType = MediaTypeFactory.getMediaType(resource)
+        .orElse(MediaType.APPLICATION_OCTET_STREAM);
 
         return ResponseEntity.ok()
             .contentType(mediaType)

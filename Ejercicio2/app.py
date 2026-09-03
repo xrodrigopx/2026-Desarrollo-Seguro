@@ -22,17 +22,32 @@ def close_db(exception):
 
 def buscar_funciones(query, sort_by='nombre', sort_dir='ASC'):
     db = get_db()
+
+    # No dejamos que sort_by/sort_dir metan cualquier cosa en el SQL,
+    # solo permitimos estos valores fijos
+    if sort_by == 'fecha':
+        columna = 'funciones.fecha_hora'
+    else:
+        columna = 'peliculas.nombre'
+
+    if sort_dir == 'DESC':
+        direccion = 'DESC'
+    else:
+        direccion = 'ASC'
+
     sql = (
-        f"SELECT peliculas.nombre as pelicula, funciones.fecha_hora, "
-        f"(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles, "
-        f"peliculas.descripcion as descripcion, peliculas.id as id "
-        f"FROM funciones "
-        f"JOIN peliculas ON funciones.pelicula_id = peliculas.id "
-        f"WHERE peliculas.nombre LIKE '%{query}%' "
-        f"ORDER BY {'peliculas.nombre' if sort_by == 'nombre' else 'funciones.fecha_hora'} "
-        f"{sort_dir}"
+        "SELECT peliculas.nombre as pelicula, funciones.fecha_hora, "
+        "(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles, "
+        "peliculas.descripcion as descripcion, peliculas.id as id "
+        "FROM funciones "
+        "JOIN peliculas ON funciones.pelicula_id = peliculas.id "
+        "WHERE peliculas.nombre LIKE ? "
+        f"ORDER BY {columna} {direccion}"
     )
-    return db.execute(sql).fetchall()
+
+    # el texto que busca el usuario ahora va como parametro, no metido dentro del SQL
+    like_query = '%' + query + '%'
+    return db.execute(sql, (like_query,)).fetchall()
 
 
 @app.route('/')

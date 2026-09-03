@@ -18,7 +18,6 @@ public class Pelicula {
     @Column(nullable = false)
     private String director;
 
-    // VULNERABILIDAD: el path se guarda con el nombre original del archivo sin sanitización
     @Column(name = "descripcion", nullable = true)
     private String descripcion;
 
